@@ -1,6 +1,7 @@
 package io.github.miniontoby.rokidapkuploader
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
@@ -116,11 +117,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun scanForDevices() {
         statusText.text = "Scanning for devices..."
         bluetoothHelper.startScan()
     }
 
+    @SuppressLint("MissingPermission")
     private fun startUpload() {
         val serialNumber = serialInput.text.toString()
         val apkUri = selectedApkUri
@@ -152,6 +155,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
     override fun onDestroy() {
         super.onDestroy()
         bluetoothHelper.release()
