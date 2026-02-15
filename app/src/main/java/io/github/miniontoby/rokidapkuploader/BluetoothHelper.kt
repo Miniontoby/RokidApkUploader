@@ -68,6 +68,9 @@ class BluetoothHelper(
                 add(Manifest.permission.BLUETOOTH_SCAN)
                 add(Manifest.permission.BLUETOOTH_CONNECT)
             }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
         }.toTypedArray()
  
         // Init Status
@@ -326,6 +329,7 @@ class BluetoothHelper(
         }
     }
 
+    var isDone: Boolean = false
     var mSocketUuid: String? = null
     var mMacAddress: String? = null
     private var tSocketUuid: String? = null
@@ -409,6 +413,7 @@ class BluetoothHelper(
      *  @param macAddress   Classic Bluetooth MAC Address
      */
     fun connect(socketUuid: String, macAddress: String, serialNumber: String, apkUri: Uri) {
+        isDone = false
         try { statusText.text = "Connecting to bluetooth..." } catch (_: Exception) {}
         // Encrypt serial number
         val snEncryptedContent = encryptSerialNumber(serialNumber)
@@ -448,7 +453,9 @@ class BluetoothHelper(
              */
             override fun onDisconnected() {
                 Log.d(TAG, "Disconnected from bluetooth")
-                try { statusText.text = "Disconnected from bluetooth" } catch (_: Exception) {}
+                if (isDone) {
+                    try { statusText.text = "Disconnected from bluetooth" } catch (_: Exception) {}
+                }
             }
 
             /**
@@ -494,7 +501,9 @@ class BluetoothHelper(
              */
             override fun onDisconnected() {
                 Log.d(TAG, "Disconnected from wifi")
-                try { statusText.text = "Disconnected from wifi" } catch (_: Exception) {}
+                if (isDone) {
+                    try { statusText.text = "Disconnected from wifi" } catch (_: Exception) {}
+                }
             }
 
             /**
@@ -532,6 +541,7 @@ class BluetoothHelper(
         return CxrApi.getInstance().startUploadApk(apkFile.absolutePath, object : ApkStatusCallback {
             override fun onUploadApkSucceed() {
                 apkFile.delete()
+                isDone = true
                 CxrApi.getInstance().deinitWifiP2P()
                 // Toast.makeText(context, "APK uploaded successfully", Toast.LENGTH_SHORT).show()
                 try { statusText.text = "APK uploaded successfully" } catch (_: Exception) {}
@@ -539,18 +549,21 @@ class BluetoothHelper(
 
             override fun onUploadApkFailed() {
                 apkFile.delete()
+                isDone = true
                 CxrApi.getInstance().deinitWifiP2P()
                 // Toast.makeText(context, "APK upload failed", Toast.LENGTH_SHORT).show()
                 try { statusText.text = "APK upload failed" } catch (_: Exception) {}
             }
 
             override fun onInstallApkSucceed() {
+                isDone = true
                 CxrApi.getInstance().deinitBluetooth()
                 // Toast.makeText(context, "APK installed successfully", Toast.LENGTH_SHORT).show()
                 try { statusText.text = "APK installed successfully" } catch (_: Exception) {}
             }
 
             override fun onInstallApkFailed() {
+                isDone = true
                 CxrApi.getInstance().deinitBluetooth()
                 // Toast.makeText(context, "APK install failed", Toast.LENGTH_SHORT).show()
                 try { statusText.text = "APK install failed" } catch (_: Exception) {}
