@@ -15,7 +15,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.Uri
+import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
@@ -28,7 +33,8 @@ import androidx.lifecycle.MutableLiveData
 import com.rokid.cxr.client.extend.CxrApi
 import com.rokid.cxr.client.extend.callbacks.ApkStatusCallback
 import com.rokid.cxr.client.extend.callbacks.BluetoothStatusCallback
-import com.rokid.cxr.client.extend.callbacks.WifiP2PStatusCallback
+import com.rokid.cxr.client.extend.callbacks.WifiHotStatusCallback
+import com.rokid.cxr.client.extend.controllers.FileController
 import com.rokid.cxr.client.utils.ValueUtil
 import java.io.File
 import kotlin.Unit;
@@ -485,46 +491,59 @@ class BluetoothHelper(
      * @see ValueUtil.CxrStatus.REQUEST_WAITING Waiting
      * @see ValueUtil.CxrStatus.REQUEST_FAILED Failed
      */
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     fun initWifi(apkUri: Uri): ValueUtil.CxrStatus? {
-        try { statusText.text = "Starting wifi..." } catch (_: Exception) {}
-        return CxrApi.getInstance().initWifiP2P(object : WifiP2PStatusCallback {
-            /**
-             * Connected
-             */
-            override fun onConnected() {
-                Log.d(TAG, "Connected to wifi")
-                uploadApk(apkUri)
+        try { statusText.text = "Starting wifi hotspot..." } catch (_: Exception) {}
+        return CxrApi.getInstance().initWifiHot(object : WifiHotStatusCallback {
+            override fun onWifiHotAvailable(ssid: String?, password: String?, ip: String?, port: Int) {
+                Log.d(TAG, "WiFi hotspot available: ssid=$ssid, password=$password, ip=$ip, port=$port")
+                try { statusText.text = "Connecting to glasses hotspot $ssid..." } catch (_: Exception) {}
+                connectToHotspot(ssid ?: return, password ?: return, ip ?: return, apkUri)
             }
-
-            /**
-             * Disconnected
-             */
-            override fun onDisconnected() {
-                Log.d(TAG, "Disconnected from wifi")
-                if (isDone) {
-                    try { statusText.text = "Disconnected from wifi" } catch (_: Exception) {}
-                }
-            }
-
-            /**
-             * Failed
-             *
-             * @param errorCode   Error Code:
-             * @see ValueUtil.CxrWifiErrorCode
-             * @see ValueUtil.CxrWifiErrorCode.WIFI_DISABLED Mobile Phone Wi-Fi disabled
-             * @see ValueUtil.CxrWifiErrorCode.WIFI_CONNECT_FAILED Wi-Fi P2P Connect Failed
-             * @see ValueUtil.CxrWifiErrorCode.UNKNOWN Unknown
-             */
-            override fun onFailed(errorCode: ValueUtil.CxrWifiErrorCode?) {
-                Log.e(TAG, "Failed to connect to wifi $errorCode")
-                try { statusText.text = "Failed to connect to wifi $errorCode" } catch (_: Exception) {}
-                CxrApi.getInstance().deinitBluetooth()
-            }
-
         })
     }
 
-    fun uploadApk(apkUri: Uri): Boolean {
+    private fun connectToHotspot(ssid: String, password: String, glassesIp: String, apkUri: Uri) {
+        val specifier = WifiNetworkSpecifier.Builder()
+            .setSsid(ssid)
+            .setWpa2Passphrase(password)
+            .build()
+
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .setNetworkSpecifier(specifier)
+            .build()
+
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.d(TAG, "Connected to glasses hotspot WiFi")
+                connectivityManager.bindProcessToNetwork(network)
+                try { statusText.text = "Connected to hotspot, uploading..." } catch (_: Exception) {}
+                uploadApk(apkUri, glassesIp)
+            }
+
+            override fun onUnavailable() {
+                Log.e(TAG, "Failed to connect to glasses hotspot WiFi")
+                try { statusText.text = "Failed to connect to glasses hotspot" } catch (_: Exception) {}
+                CxrApi.getInstance().deinitWifiHot()
+                CxrApi.getInstance().deinitBluetooth()
+            }
+        }
+
+        connectivityManager.requestNetwork(request, networkCallback!!)
+    }
+
+    private fun disconnectHotspot() {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivityManager.bindProcessToNetwork(null)
+        networkCallback?.let { connectivityManager.unregisterNetworkCallback(it) }
+        networkCallback = null
+    }
+
+    fun uploadApk(apkUri: Uri, glassesIp: String): Boolean {
         try { statusText.text = "Starting upload APK..." } catch (_: Exception) {}
 
         // Read APK file
@@ -537,35 +556,39 @@ class BluetoothHelper(
             }
         }
 
-        // Upload APK
-        return CxrApi.getInstance().startUploadApk(apkFile.absolutePath, object : ApkStatusCallback {
+        // Upload APK directly via FileController, bypassing CxrApi.startUploadApk
+        // which has a broken isWifiP2PConnected() check and triggers WifiController NPE
+        Log.d(TAG, "Uploading APK via FileController to $glassesIp:8848")
+        val apkCallback = object : ApkStatusCallback {
             override fun onUploadApkSucceed() {
                 apkFile.delete()
                 isDone = true
-                CxrApi.getInstance().deinitWifiP2P()
-                // Toast.makeText(context, "APK uploaded successfully", Toast.LENGTH_SHORT).show()
+                disconnectHotspot()
+                CxrApi.getInstance().deinitWifiHot()
                 try { statusText.text = "APK uploaded successfully" } catch (_: Exception) {}
             }
 
             override fun onUploadApkFailed() {
                 apkFile.delete()
                 isDone = true
-                CxrApi.getInstance().deinitWifiP2P()
-                // Toast.makeText(context, "APK upload failed", Toast.LENGTH_SHORT).show()
+                disconnectHotspot()
+                CxrApi.getInstance().deinitWifiHot()
                 try { statusText.text = "APK upload failed" } catch (_: Exception) {}
             }
 
             override fun onInstallApkSucceed() {
                 isDone = true
+                disconnectHotspot()
+                CxrApi.getInstance().deinitWifiHot()
                 CxrApi.getInstance().deinitBluetooth()
-                // Toast.makeText(context, "APK installed successfully", Toast.LENGTH_SHORT).show()
                 try { statusText.text = "APK installed successfully" } catch (_: Exception) {}
             }
 
             override fun onInstallApkFailed() {
                 isDone = true
+                disconnectHotspot()
+                CxrApi.getInstance().deinitWifiHot()
                 CxrApi.getInstance().deinitBluetooth()
-                // Toast.makeText(context, "APK install failed", Toast.LENGTH_SHORT).show()
                 try { statusText.text = "APK install failed" } catch (_: Exception) {}
             }
 
@@ -584,6 +607,21 @@ class BluetoothHelper(
             override fun onOpenAppFailed() {
                 TODO("Not yet implemented")
             }
-        })
+
+            override fun onStopAppResult(success: Boolean) {
+                Log.d(TAG, "Stop app result: $success")
+            }
+
+            override fun onGlassAppResume(appId: String?) {
+                Log.d(TAG, "Glass app resume: $appId")
+            }
+
+            override fun onQueryAppResult(appId: String?, installed: Boolean) {
+                Log.d(TAG, "Query app result: appId=$appId, installed=$installed")
+            }
+        }
+
+        FileController.getInstance().startUploadApk(apkFile, glassesIp, apkCallback)
+        return true
     }
 }
