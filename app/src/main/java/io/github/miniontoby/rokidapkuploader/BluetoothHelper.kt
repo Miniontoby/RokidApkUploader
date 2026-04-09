@@ -521,6 +521,10 @@ class BluetoothHelper(
                 CxrApi.getInstance().deinitBluetooth()
             }
 
+            override fun onP2pDeviceAvailable(p0: String?, p1: String?, p2: String?) {
+                Log.d(TAG, "P2P device available: $p0 $p1 $p2")
+            }
+
         })
     }
 
@@ -582,6 +586,18 @@ class BluetoothHelper(
             }
 
             override fun onOpenAppFailed() {
+                TODO("Not yet implemented")
+            }
+
+            override fun onStopAppResult(p0: Boolean) {
+                TODO("Not yet implemented")
+            }
+
+            override fun onGlassAppResume(p0: String?) {
+                TODO("Not yet implemented")
+            }
+
+            override fun onQueryAppResult(p0: String?, p1: Boolean) {
                 TODO("Not yet implemented")
             }
         })

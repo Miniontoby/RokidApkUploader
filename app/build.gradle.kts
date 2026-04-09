@@ -58,5 +58,5 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    implementation("com.rokid.cxr:client-m:1.0.4")
+    implementation("com.rokid.cxr:client-m:1.1.0")
 }
